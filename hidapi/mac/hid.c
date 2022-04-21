@@ -32,6 +32,7 @@
 #include <sys/time.h>
 #include <unistd.h>
 #include <dlfcn.h>
+#include <stdio.h>
 
 #include "hidapi.h"
 
@@ -567,15 +568,26 @@ static void hid_report_callback(void *context, IOReturn result, void *sender,
 	rpt->len = report_length;
 	rpt->next = NULL;
 
+    printf("hid_report_callback: linked_list prep\n");
+    for (int i = 0; i < rpt->len; i++) {
+        printf("%02X ", rpt->data[i]);
+        if ((i + 1) % 8 == 0) {
+            printf("    ", rpt->data[i]);
+        }
+    }
+    printf("\n");
+
 	/* Lock this section */
 	pthread_mutex_lock(&dev->mutex);
 
 	/* Attach the new report object to the end of the list. */
 	if (dev->input_reports == NULL) {
+        printf("hid_report_callback: dev->input_reports, EMPTY; FIRST\n");
 		/* The list is empty. Put it at the root. */
 		dev->input_reports = rpt;
 	}
 	else {
+        printf("hid_report_callback: dev->input_reports, APPEND\n");
 		/* Find the end of the list and attach. */
 		struct input_report *cur = dev->input_reports;
 		int num_queued = 0;
@@ -795,10 +807,19 @@ int HID_API_EXPORT hid_write(hid_device *dev, const unsigned char *data, size_t 
 /* Helper function, so that this isn't duplicated in hid_read(). */
 static int return_data(hid_device *dev, unsigned char *data, size_t length)
 {
+    printf("return-data: start size_t length = %ld\n", length);
 	/* Copy the data out of the linked list item (rpt) into the
 	   return buffer (data), and delete the liked list item. */
 	struct input_report *rpt = dev->input_reports;
 	size_t len = (length < rpt->len)? length: rpt->len;
+    printf("return-data: len %d => copy data to *data\n", len);
+    for (int i = 0; i < len; i++) {
+        printf("%02X ", rpt->data[i]);
+        if ((i + 1) % 8 == 0) {
+            printf("    ", rpt->data[i]);
+        }
+    }
+    printf("\n");
 	memcpy(data, rpt->data, len);
 	dev->input_reports = rpt->next;
 	free(rpt->data);
@@ -849,6 +870,7 @@ static int cond_timedwait(const hid_device *dev, pthread_cond_t *cond, pthread_m
 
 int HID_API_EXPORT hid_read_timeout(hid_device *dev, unsigned char *data, size_t length, int milliseconds)
 {
+    printf("hid_read_timeout: start\n");
 	int bytes_read = -1;
 
 	/* Lock the access to the report list. */
@@ -857,17 +879,20 @@ int HID_API_EXPORT hid_read_timeout(hid_device *dev, unsigned char *data, size_t
 	/* There's an input report queued up. Return it. */
 	if (dev->input_reports) {
 		/* Return the first one */
+        printf("hid_read_timeout: return first queued data\n");
 		bytes_read = return_data(dev, data, length);
 		goto ret;
 	}
 
 	/* Return if the device has been disconnected. */
 	if (dev->disconnected) {
+        printf("hid_read_timeout: disconnected\n");
 		bytes_read = -1;
 		goto ret;
 	}
 
 	if (dev->shutdown_thread) {
+        printf("hid_read_timeout: shutdown\n");
 		/* This means the device has been closed (or there
 		   has been an error. An error code of -1 should
 		   be returned. */
@@ -879,8 +904,10 @@ int HID_API_EXPORT hid_read_timeout(hid_device *dev, unsigned char *data, size_t
 
 	if (milliseconds == -1) {
 		/* Blocking */
+        printf("hid_read_timeout: blocking until cond_wait\n");
 		int res;
 		res = cond_wait(dev, &dev->condition, &dev->mutex);
+        printf("hid_read_timeout: cond_wait finished\n");
 		if (res == 0)
 			bytes_read = return_data(dev, data, length);
 		else {
@@ -890,6 +917,7 @@ int HID_API_EXPORT hid_read_timeout(hid_device *dev, unsigned char *data, size_t
 	}
 	else if (milliseconds > 0) {
 		/* Non-blocking, but called with timeout. */
+        printf("hid_read_timeout: NON-blocking\n");
 		int res;
 		struct timespec ts;
 		struct timeval tv;
@@ -918,11 +946,13 @@ int HID_API_EXPORT hid_read_timeout(hid_device *dev, unsigned char *data, size_t
 ret:
 	/* Unlock */
 	pthread_mutex_unlock(&dev->mutex);
+    printf("hid_read_timeout: bytes read: %d\n", bytes_read);
 	return bytes_read;
 }
 
 int HID_API_EXPORT hid_read(hid_device *dev, unsigned char *data, size_t length)
 {
+    printf(">> hid_read: BBlocking? %d\n", dev->blocking);
 	return hid_read_timeout(dev, data, length, (dev->blocking)? -1: 0);
 }
 

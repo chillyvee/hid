@@ -4,6 +4,7 @@
 // This file is released under the 3-clause BSD license. Note however that Linux
 // support depends on libusb, released under LGNU GPL 2.1 or later.
 
+//go:build (linux && cgo) || (darwin && !ios && cgo) || (windows && cgo)
 // +build linux,cgo darwin,!ios,cgo windows,cgo
 
 package hid
@@ -44,6 +45,7 @@ import "C"
 
 import (
 	"errors"
+	"fmt"
 	"runtime"
 	"sync"
 	"unsafe"
@@ -202,6 +204,7 @@ func (dev *Device) Write(b []byte) (int, error) {
 func (dev *Device) Read(b []byte) (int, error) {
 	// Aborth if nothing to read
 	if len(b) == 0 {
+		fmt.Printf("hid.Read: len(buffer) is zero\n")
 		return 0, nil
 	}
 	// Abort if device closed in between
@@ -210,6 +213,7 @@ func (dev *Device) Read(b []byte) (int, error) {
 	dev.lock.Unlock()
 
 	if device == nil {
+		fmt.Printf("hid.Read: Device is Closed A\n")
 		return 0, ErrDeviceClosed
 	}
 	// Execute the read operation
@@ -221,6 +225,7 @@ func (dev *Device) Read(b []byte) (int, error) {
 		dev.lock.Unlock()
 
 		if device == nil {
+			fmt.Printf("hid.Read: Device is Closed B\n")
 			return 0, ErrDeviceClosed
 		}
 		// Device not closed, some other error occurred
@@ -230,6 +235,8 @@ func (dev *Device) Read(b []byte) (int, error) {
 		}
 		failure, _ := wcharTToString(message)
 		return 0, errors.New("hidapi: " + failure)
+	} else {
+		fmt.Printf("C.hid_read [%d] => %v\n", read, b)
 	}
 	return read, nil
 }
